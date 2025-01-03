@@ -69,90 +69,107 @@
             margin-top: 5px;
             min-height: 20px;
         }
+        .cache-indicator {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+            font-style: italic;
+        }
+        
+        .cached-response {
+            border-left: 3px solid #2196f3;
+        }
+        
+        .similar-conversations {
+            background-color: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+        
+        .cache-info {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
     <div class="chat-container">
         <h1 style="text-align: center;">বাংলা চ্যাটবট</h1>
+        <div style="text-align: right; margin-bottom: 10px;">
+            <a href="/conversation-history" style="color: #2196f3; text-decoration: none;">
+                View Conversation History →
+            </a>
+        </div>
         <div class="chat-messages" id="chatMessages"></div>
         <div class="input-container">
-            <div style="flex: 1;">
-                <input type="text" id="userInput" placeholder="আপনার মেসেজ লিখুন..." autocomplete="off">
-                <div id="correctionPreview" class="correction-preview"></div>
-            </div>
+            <input type="text" id="userInput" placeholder="আপনার মেসেজ লিখুন..." autocomplete="off">
             <button onclick="sendMessage()">পাঠান</button>
         </div>
     </div>
 
     <script>
         let currentConversationId = null;
+        let messageCache = new Map(); // Store message cache details
 
-        function addMessage(message, isUser) {
+        function addMessage(message, isUser, cacheDetails = null) {
             const chatMessages = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
-            messageDiv.textContent = message;
+            
+            // Add cached-response class if response used cache
+            if (cacheDetails && cacheDetails.used_cache) {
+                messageDiv.classList.add('cached-response');
+            }
+            
+            // Add message text
+            messageDiv.innerHTML = `<div>${message}</div>`;
+            
+            // Add cache indicator if applicable
+            if (cacheDetails) {
+                if (cacheDetails.used_cache) {
+                    messageDiv.innerHTML += `
+                        <div class="cache-indicator">
+                            ✓ Similar conversation found in cache
+                        </div>
+                    `;
+                }
+                if (cacheDetails.cache_name) {
+                    messageDiv.innerHTML += `
+                        <div class="cache-info">
+                            Cache ID: ${cacheDetails.cache_name}
+                        </div>
+                    `;
+                }
+            }
+            
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        let typingTimer;
-        const doneTypingInterval = 500; // ms
-
-        document.getElementById('userInput').addEventListener('input', function() {
-            clearTimeout(typingTimer);
-            const userInput = this.value.trim();
             
-            if (userInput) {
-                typingTimer = setTimeout(() => checkBanglish(userInput), doneTypingInterval);
-            } else {
-                document.getElementById('correctionPreview').textContent = '';
-            }
-        });
-
-        async function checkBanglish(text) {
-            const formData = new FormData();
-            formData.append('text', text);
-
-            try {
-                const response = await fetch('/correct-banglish', {
-                    method: 'POST',
-                    body: formData
+            // Store in message cache if cache name is provided
+            if (cacheDetails && cacheDetails.cache_name) {
+                messageCache.set(cacheDetails.cache_name, {
+                    message,
+                    isUser,
+                    timestamp: new Date(),
+                    ...cacheDetails
                 });
-                const data = await response.json();
-                
-                if (data.corrected_text !== text) {
-                    document.getElementById('correctionPreview').textContent = 
-                        `সম্ভাব্য শুদ্ধ রূপ: ${data.corrected_text}`;
-                } else {
-                    document.getElementById('correctionPreview').textContent = '';
-                }
-            } catch (error) {
-                console.error('Error checking Banglish:', error);
             }
         }
 
         async function sendMessage() {
             const userInput = document.getElementById('userInput');
-            const correctionPreview = document.getElementById('correctionPreview');
             const message = userInput.value.trim();
             
             if (message) {
-                // Use corrected text if available
-                const textToSend = correctionPreview.textContent ? 
-                    correctionPreview.textContent.replace('সম্ভাব্য শুদ্ধ রূপ: ', '') : 
-                    message;
-
-                addMessage(textToSend, true);
+                addMessage(message, true);
                 userInput.value = '';
-                correctionPreview.textContent = '';
                 userInput.disabled = true;
 
                 const formData = new FormData();
-                formData.append('message', textToSend);
-                if (currentConversationId) {
-                    formData.append('conversation_id', currentConversationId);
-                }
+                formData.append('message', message);
 
                 try {
                     const response = await fetch('/chat', {
@@ -160,8 +177,20 @@
                         body: formData
                     });
                     const data = await response.json();
-                    addMessage(data.response, false);
-                    currentConversationId = data.conversation_id;
+                    
+                    // Add bot response with cache details
+                    addMessage(data.response, false, {
+                        used_cache: data.used_cache,
+                        cache_name: data.cache_name,
+                        has_embedding: data.has_embedding
+                    });
+                    
+                    // Store conversation ID and cache name
+                    if (data.cache_name) {
+                        currentConversationId = data.conversation_id;
+                        localStorage.setItem(`cache_${data.conversation_id}`, data.cache_name);
+                    }
+                    
                 } catch (error) {
                     addMessage('দুঃখিত, একটি সমস্যা হয়েছে।', false);
                 }
@@ -171,11 +200,37 @@
             }
         }
 
+        // Load cached conversations on startup
+        async function loadCachedConversations() {
+            try {
+                const response = await fetch('/cache-stats');
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.stats.cache_details.length > 0) {
+                    const similarDiv = document.createElement('div');
+                    similarDiv.className = 'similar-conversations';
+                    similarDiv.innerHTML = `
+                        <h3>Cached Conversations Available</h3>
+                        <p>Found ${data.stats.total_caches} previous conversations</p>
+                    `;
+                    document.querySelector('.chat-container').insertBefore(
+                        similarDiv,
+                        document.querySelector('.chat-messages')
+                    );
+                }
+            } catch (error) {
+                console.error('Error loading cached conversations:', error);
+            }
+        }
+
         document.getElementById('userInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 sendMessage();
             }
         });
+
+        // Load cached conversations when page loads
+        loadCachedConversations();
     </script>
 </body>
 </html> 

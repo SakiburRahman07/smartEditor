@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cache Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-container {
+            background-color: #f5f5f5;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .cache-list {
+            margin-top: 20px;
+        }
+        .cache-item {
+            background-color: white;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 3px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .success { color: green; }
+        .error { color: red; }
+        .test-section {
+            background-color: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .test-section h4 {
+            margin-top: 0;
+            color: #333;
+        }
+        .conversation-item {
+            background-color: #f8f9fa;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 4px solid #2196f3;
+        }
+        .conversation-item ul {
+            margin: 5px 0;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Cache Testing Dashboard</h1>
+    
+    <div class="test-container">
+        <h2>Run Cache Test</h2>
+        <button onclick="runCacheTest()">Test Cache</button>
+        <div id="testResults"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Cached Conversations</h2>
+        <button onclick="listCaches()">Refresh Cache List</button>
+        <div id="cacheList" class="cache-list"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Caching System Test</h2>
+        <button onclick="testCaching()">Run Complete Cache Test</button>
+        <div id="cachingTestResults"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Cache Statistics</h2>
+        <button onclick="getCacheStats()">Get Cache Stats</button>
+        <div id="cacheStats"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Test Conversation Caching</h2>
+        <button onclick="testConversationCache()">Test Conversation Cache</button>
+        <div id="conversationTestResults"></div>
+    </div>
+
+    <script>
+        async function runCacheTest() {
+            const resultDiv = document.getElementById('testResults');
+            resultDiv.innerHTML = 'Running test...';
+            
+            try {
+                const response = await fetch('/test-cache');
+                const data = await response.json();
+                
+                let html = '<h3>Test Results:</h3>';
+                if (data.status === 'success') {
+                    html += `
+                        <p class="success">✓ Cache created successfully</p>
+                        <p><strong>Cache Name:</strong> ${data.cache_name}</p>
+                        <p><strong>Original Response:</strong> ${data.original_response}</p>
+                        <p><strong>Cached Conversation:</strong> ${data.cached_conversation}</p>
+                        <p><strong>Expires:</strong> ${new Date(data.cache_expiry).toLocaleString()}</p>
+                    `;
+                } else {
+                    html += `<p class="error">✗ Test failed: ${data.message}</p>`;
+                }
+                
+                resultDiv.innerHTML = html;
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error running test: ${error.message}</p>`;
+            }
+        }
+
+        async function listCaches() {
+            const listDiv = document.getElementById('cacheList');
+            listDiv.innerHTML = 'Loading caches...';
+            
+            try {
+                const response = await fetch('/list-caches');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let html = `<p>Total caches: ${data.total_caches}</p>`;
+                    
+                    data.caches.forEach(cache => {
+                        html += `
+                            <div class="cache-item">
+                                <p><strong>Name:</strong> ${cache.name}</p>
+                                <p><strong>Display Name:</strong> ${cache.display_name}</p>
+                                <p><strong>Created:</strong> ${new Date(cache.create_time).toLocaleString()}</p>
+                                <p><strong>Expires:</strong> ${new Date(cache.expire_time).toLocaleString()}</p>
+                            </div>
+                        `;
+                    });
+                    
+                    listDiv.innerHTML = html;
+                } else {
+                    listDiv.innerHTML = `<p class="error">Failed to list caches: ${data.message}</p>`;
+                }
+            } catch (error) {
+                listDiv.innerHTML = `<p class="error">Error listing caches: ${error.message}</p>`;
+            }
+        }
+
+        async function testCaching() {
+            const resultDiv = document.getElementById('cachingTestResults');
+            resultDiv.innerHTML = 'Running caching tests...';
+            
+            try {
+                const response = await fetch('/test-caching');
+                const data = await response.json();
+                
+                let html = '<h3>Caching Test Results:</h3>';
+                if (data.status === 'success') {
+                    const tests = data.tests;
+                    html += `
+                        <div class="test-section">
+                            <h4>Initial Cache Test:</h4>
+                            <p>Message: "${tests.initial_cache.message}"</p>
+                            <p>Response: "${tests.initial_cache.response}"</p>
+                            <p>Cache Created: ${tests.initial_cache.cache_name ? '✓' : '✗'}</p>
+                            <p>Has Embedding: ${tests.initial_cache.has_embedding ? '✓' : '✗'}</p>
+                        </div>
+                        
+                        <div class="test-section">
+                            <h4>Similar Query Test:</h4>
+                            <p>Message: "${tests.similar_query.message}"</p>
+                            <p>Response: "${tests.similar_query.response}"</p>
+                            <p>Used Cache: ${tests.similar_query.used_cache ? '✓' : '✗'}</p>
+                            <p>Has Embedding: ${tests.similar_query.has_embedding ? '✓' : '✗'}</p>
+                        </div>
+                        
+                        <div class="test-section">
+                            <h4>Cache Retrieval Test:</h4>
+                            <p>Cache Found: ${tests.cache_retrieval.cache_found ? '✓' : '✗'}</p>
+                            <p>Cached Text: "${tests.cache_retrieval.cached_text}"</p>
+                        </div>
+                    `;
+                } else {
+                    html += `<p class="error">✗ Test failed: ${data.message}</p>`;
+                }
+                
+                resultDiv.innerHTML = html;
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error running tests: ${error.message}</p>`;
+            }
+        }
+
+        async function getCacheStats() {
+            const statsDiv = document.getElementById('cacheStats');
+            statsDiv.innerHTML = 'Loading cache statistics...';
+            
+            try {
+                const response = await fetch('/cache-stats');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const stats = data.stats;
+                    let html = `
+                        <p><strong>Total Gemini Caches:</strong> ${stats.total_gemini_caches}</p>
+                        <p><strong>Memory Embeddings:</strong> ${stats.memory_embeddings}</p>
+                        <p><strong>Memory Conversations:</strong> ${stats.memory_conversations}</p>
+                        <h4>Cache Details:</h4>
+                    `;
+                    
+                    stats.cache_details.forEach(cache => {
+                        html += `
+                            <div class="cache-item">
+                                <p><strong>Name:</strong> ${cache.name}</p>
+                                <p><strong>Display Name:</strong> ${cache.display_name}</p>
+                                <p><strong>Created:</strong> ${new Date(cache.create_time).toLocaleString()}</p>
+                                <p><strong>Expires:</strong> ${new Date(cache.expire_time).toLocaleString()}</p>
+                                <p><strong>In Memory:</strong> ${cache.in_memory ? '✓' : '✗'}</p>
+                            </div>
+                        `;
+                    });
+                    
+                    statsDiv.innerHTML = html;
+                } else {
+                    statsDiv.innerHTML = `<p class="error">Failed to get stats: ${data.message}</p>`;
+                }
+            } catch (error) {
+                statsDiv.innerHTML = `<p class="error">Error getting stats: ${error.message}</p>`;
+            }
+        }
+
+        async function testConversationCache() {
+            const resultDiv = document.getElementById('conversationTestResults');
+            resultDiv.innerHTML = 'Running conversation cache test...';
+            
+            try {
+                const response = await fetch('/test-conversation-cache');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let html = '<h3>Conversation Cache Test Results:</h3>';
+                    
+                    // Show conversation tests
+                    html += '<div class="test-section"><h4>Conversation Sequence:</h4>';
+                    data.conversation_tests.forEach((test, index) => {
+                        html += `
+                            <div class="conversation-item">
+                                <p><strong>Message ${index + 1}:</strong> "${test.user_message}"</p>
+                                <p><strong>Response:</strong> "${test.bot_response}"</p>
+                                <p><strong>Cache Created:</strong> ${test.cache_name ? '✓' : '✗'}</p>
+                                <p><strong>Has Embedding:</strong> ${test.has_embedding ? '✓' : '✗'}</p>
+                                <p><strong>Cache Details:</strong></p>
+                                <ul>
+                                    ${test.cache_name ? `
+                                        <li>Cache ID: ${test.cache_name}</li>
+                                        <li>Created: ${new Date(test.cache_created).toLocaleString()}</li>
+                                        <li>Expires: ${new Date(test.cache_expires).toLocaleString()}</li>
+                                    ` : 'No cache details available'}
+                                </ul>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    
+                    // Show similarity test
+                    html += `
+                        <div class="test-section">
+                            <h4>Similarity Test:</h4>
+                            <p><strong>Similar Query:</strong> "${data.similarity_test.query}"</p>
+                            <p><strong>Response:</strong> "${data.similarity_test.response}"</p>
+                            <p><strong>Used Cache:</strong> ${data.similarity_test.used_cache ? '✓' : '✗'}</p>
+                        </div>
+                    `;
+                    
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `<p class="error">Test failed: ${data.message}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="error">Error running test: ${error.message}</p>`;
+            }
+        }
+
+        // Load cache list on page load
+        listCaches();
+    </script>
+</body>
+</html> 

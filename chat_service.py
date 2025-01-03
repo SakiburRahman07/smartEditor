@@ -2,6 +2,8 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 import os
 import logging
+import uuid
+from embedding_service import EmbeddingService
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -35,11 +37,77 @@ class ChatService:
             self.chat = self.model.start_chat(history=[])
             logger.info("ChatService initialized successfully")
             
+            self.embedding_service = EmbeddingService()
+            
         except Exception as e:
             logger.error(f"Error initializing ChatService: {e}")
             raise
 
-    async def get_response(self, message: str) -> str:
+    async def get_response(self, message: str) -> dict:
+        try:
+            # Create embedding for the query
+            query_embedding = await self.embedding_service.create_embedding(message)
+            
+            if query_embedding:
+                # Find similar cached conversations
+                similar_conversations = await self.embedding_service.find_similar_conversations(
+                    query_embedding, threshold=0.85
+                )
+                
+                # If similar conversations found, use the most similar one for context
+                if similar_conversations:
+                    cache_id, similarity = similar_conversations[0]
+                    cached_conv = await self.embedding_service.get_cached_conversation(cache_id)
+                    if cached_conv:
+                        # Add cached conversation as context
+                        context = f"""Previous relevant conversation:
+                        {cached_conv['text']}
+                        
+                        Current question: {message}
+                        """
+                        response = await self._get_gemini_response(context)
+                    else:
+                        response = await self._get_gemini_response(message)
+                else:
+                    response = await self._get_gemini_response(message)
+            else:
+                response = await self._get_gemini_response(message)
+            
+            # Create a unique conversation ID
+            conversation_id = str(uuid.uuid4())
+            
+            # Format conversation text properly
+            conversation_text = f"User: {message}\nBot: {response}"
+            
+            # Create embedding for the conversation
+            conv_embedding = await self.embedding_service.create_embedding(conversation_text)
+            
+            # Cache the conversation with its embedding
+            if conv_embedding:
+                cache_name = await self.embedding_service.cache_conversation(
+                    conversation_text,
+                    embedding=conv_embedding,
+                    display_name=f"Conversation_{conversation_id[:8]}"  # Use shorter ID in display name
+                )
+            else:
+                cache_name = None
+            
+            return {
+                "response": response,
+                "conversation_id": conversation_id,
+                "cache_name": cache_name,
+                "has_embedding": conv_embedding is not None,
+                "used_cache": bool(similar_conversations)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in get_response: {e}")
+            return {
+                "response": "দুঃখিত, একটি ত্রুটি ঘটেছে। আবার চেষ্টা করুন।",
+                "error": str(e)
+            }
+
+    async def _get_gemini_response(self, message: str) -> str:
         try:
             # Prepare prompt
             prompt = f"""
@@ -57,7 +125,7 @@ class ChatService:
                 logger.error("Empty response received")
                 return "দুঃখিত, কোনো উত্তর পাওয়া যায়নি। আবার চেষ্টা করুন।"
             
-            return {"response": response.text}
+            return response.text
             
         except Exception as e:
             logger.error(f"Error getting response: {e}")

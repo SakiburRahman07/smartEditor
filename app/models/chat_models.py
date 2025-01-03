@@ -9,11 +9,13 @@ class Message(BaseModel):
     timestamp: datetime = datetime.now()
 
 class Conversation(BaseModel):
-    user_id: str = "default_user"
-    messages: List[Message] = []
-    pdf_context: Optional[str] = None
+    id: str
+    user_message: str
+    bot_response: str
+    embedding: Optional[List[float]] = None
+    cache_name: Optional[str] = None
     created_at: datetime = datetime.now()
-    updated_at: datetime = datetime.now()
 
+class ConversationInDB(Conversation):
     class Config:
-        arbitrary_types_allowed = True 
+        from_attributes = True 
