@@ -325,9 +325,15 @@ async def check_banglish(text: str = Form(...)):
     """Check and suggest corrections for Banglish text"""
     try:
         suggestions = await chat_service.banglish_service.get_suggestions(text)
+        # Get Bangla translations for suggestions
+        bangla_translations = {
+            suggestion: chat_service.banglish_service.get_bangla_for_suggestion(suggestion)
+            for suggestion in suggestions
+        }
         return {
             "status": "success",
-            "suggestions": suggestions
+            "suggestions": suggestions,
+            "bangla": bangla_translations
         }
     except Exception as e:
         return {

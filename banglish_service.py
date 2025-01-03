@@ -1,25 +1,28 @@
-import json
 import logging
+from typing import List, Optional, Dict, Tuple
+from rapidfuzz import fuzz, process
 from pathlib import Path
-from typing import List, Dict, Optional
+import json
 
 logger = logging.getLogger(__name__)
 
 class BanglishService:
     def __init__(self):
         try:
-            # Load banglish spelling correction mapping
             self.mapping_file = Path("data/banglish_mapping.json")
-            self.mapping = self._load_mapping()
+            # Dictionary to store misspelled -> correct mappings
+            self.spelling_corrections = self._load_spelling_corrections()
+            # Set of correct Banglish words
+            self.correct_words = set(self.spelling_corrections.values())
             logger.info("BanglishService initialized successfully")
         except Exception as e:
             logger.error(f"Error initializing BanglishService: {e}")
             raise
 
-    def _load_mapping(self) -> Dict[str, str]:
-        """Load or create banglish spelling correction mapping"""
-        default_mapping = {
-            # Common Banglish spelling corrections
+    def _load_spelling_corrections(self) -> Dict[str, str]:
+        """Load or create Banglish spelling corrections"""
+        default_corrections = {
+            # Common misspellings -> correct Banglish
             "ame": "ami",
             "amee": "ami",
             "tume": "tumi",
@@ -27,47 +30,50 @@ class BanglishService:
             "apne": "apni",
             "kemun": "kemon",
             "kmn": "kemon",
-            "acho": "acho",
-            "achen": "achen",
             "valo": "bhalo",
             "balo": "bhalo",
             "kothai": "kothay",
             "koi": "kothay",
             "ke": "ki",
             "kee": "ki",
-            "korcho": "korcho",
             "krcho": "korcho",
-            "korchen": "korchen",
             "krchen": "korchen",
-            "bolo": "bolo",
             "bol": "bolo",
-            "bolun": "bolun",
             "blun": "bolun",
             "dhk": "dhaka",
             "dkh": "dhaka",
-            "bangla": "bangla",
             "bangali": "bangla",
-            "english": "english",
             "ing": "english",
             "sekhi": "shikhi",
             "sikhi": "shikhi",
             "sekhbo": "shikhbo",
             "sikhbo": "shikhbo",
             "jni": "jani",
-            "janina": "janina",
             "janena": "janina",
-            "bujhi": "bujhi",
             "buji": "bujhi",
             "bujina": "bujhina",
             "bujhena": "bujhina",
-            "khub": "khub",
             "kub": "khub",
-            "onek": "onek",
             "onk": "onek",
-            "sundor": "sundor",
+            "sundur": "sundor",
             "sundr": "sundor",
             "shundr": "sundor",
-            # Add more mappings as needed
+            "shundur": "sundor",
+            "habijbi": "habijabi",
+            "hbijbi": "habijabi",
+            "ktha": "kotha",
+            "kthay": "kothay",
+            "kno": "keno",
+            "kenoo": "keno",
+            "hbe": "hobe",
+            "hby": "hobe",
+            "hoby": "hobe",
+            "hobey": "hobe",
+            "kore": "koro",
+            "kro": "koro",
+            "krr": "koro",
+            "krun": "korun",
+            "krn": "korun"
         }
 
         try:
@@ -75,15 +81,36 @@ class BanglishService:
                 with open(self.mapping_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
             else:
-                # Create data directory if it doesn't exist
                 self.mapping_file.parent.mkdir(exist_ok=True)
-                # Save default mapping
                 with open(self.mapping_file, 'w', encoding='utf-8') as f:
-                    json.dump(default_mapping, f, ensure_ascii=False, indent=2)
-                return default_mapping
+                    json.dump(default_corrections, f, ensure_ascii=False, indent=2)
+                return default_corrections
         except Exception as e:
-            logger.error(f"Error loading mapping: {e}")
-            return default_mapping
+            logger.error(f"Error loading spelling corrections: {e}")
+            return default_corrections
+
+    def _find_best_match(self, word: str, threshold: int = 80) -> Tuple[Optional[str], int]:
+        """Find best matching correct word using fuzzy matching"""
+        try:
+            # First check exact matches in spelling corrections
+            if word in self.spelling_corrections:
+                return self.spelling_corrections[word], 100
+            
+            # Then try fuzzy matching with correct words
+            match = process.extractOne(
+                word,
+                self.correct_words,
+                scorer=fuzz.WRatio,
+                score_cutoff=threshold
+            )
+            
+            if match:
+                return match[0], match[1]
+            return None, 0
+            
+        except Exception as e:
+            logger.error(f"Error finding best match: {e}")
+            return None, 0
 
     async def get_correction(self, text: str) -> Optional[str]:
         """Get spelling correction for Banglish text"""
@@ -92,8 +119,9 @@ class BanglishService:
             corrected_words = []
             
             for word in words:
-                if word in self.mapping:
-                    corrected_words.append(self.mapping[word])
+                best_match, score = self._find_best_match(word)
+                if best_match:
+                    corrected_words.append(best_match)
                 else:
                     corrected_words.append(word)
             
@@ -105,53 +133,87 @@ class BanglishService:
             return None
 
     async def get_suggestions(self, text: str) -> List[str]:
-        """Get possible spelling suggestions for Banglish text"""
+        """Get possible spelling suggestions using fuzzy matching"""
         try:
-            suggestions = []
             words = text.lower().split()
+            suggestions = set()
             
-            # Get exact matches
-            exact_match = await self.get_correction(text)
-            if exact_match:
-                suggestions.append(exact_match)
-            
-            # Get partial matches
             for word in words:
-                for misspelled, correct in self.mapping.items():
-                    # Check if the word might be a misspelling
-                    if (word in misspelled or misspelled in word or 
-                        self._similarity_score(word, misspelled) > 0.7):
+                # Get multiple close matches for each word
+                matches = process.extract(
+                    word,
+                    self.correct_words,
+                    scorer=fuzz.WRatio,
+                    limit=3,
+                    score_cutoff=65  # Lower threshold for suggestions
+                )
+                
+                if matches:
+                    # Create suggestions by replacing the word
+                    for match, score in matches:
                         new_words = words.copy()
-                        new_words[words.index(word)] = correct
+                        new_words[words.index(word)] = match
                         suggestion = ' '.join(new_words)
-                        if suggestion not in suggestions:
-                            suggestions.append(suggestion)
+                        suggestions.add(suggestion)
+                
+                # Also add exact mapping if available
+                if word in self.spelling_corrections:
+                    new_words = words.copy()
+                    new_words[words.index(word)] = self.spelling_corrections[word]
+                    suggestion = ' '.join(new_words)
+                    suggestions.add(suggestion)
             
-            return suggestions[:5]  # Return top 5 suggestions
+            return list(suggestions)[:5]  # Return top 5 unique suggestions
             
         except Exception as e:
             logger.error(f"Error getting suggestions: {e}")
             return []
 
-    def _similarity_score(self, word1: str, word2: str) -> float:
-        """Calculate similarity between two words using character overlap"""
-        if not word1 or not word2:
-            return 0.0
-        
-        set1 = set(word1)
-        set2 = set(word2)
-        intersection = set1.intersection(set2)
-        union = set1.union(set2)
-        
-        return len(intersection) / len(union)
-
-    def add_mapping(self, misspelled: str, correct: str) -> bool:
-        """Add new Banglish spelling correction mapping"""
+    def get_bangla_for_suggestion(self, suggestion: str) -> str:
+        """Get Bangla translation for a suggestion"""
         try:
-            self.mapping[misspelled.lower()] = correct.lower()
-            with open(self.mapping_file, 'w', encoding='utf-8') as f:
-                json.dump(self.mapping, f, ensure_ascii=False, indent=2)
-            return True
+            # Load Bangla translations
+            bangla_map = {
+                "ami": "আমি",
+                "tumi": "তুমি",
+                "apni": "আপনি",
+                "kemon": "কেমন",
+                "acho": "আছো",
+                "achen": "আছেন",
+                "bhalo": "ভালো",
+                "kothay": "কোথায়",
+                "ki": "কি",
+                "korcho": "করছো",
+                "korchen": "করছেন",
+                "bolo": "বলো",
+                "bolun": "বলুন",
+                "dhaka": "ঢাকা",
+                "bangla": "বাংলা",
+                "english": "ইংরেজি",
+                "shikhi": "শিখি",
+                "shikhbo": "শিখবো",
+                "jani": "জানি",
+                "janina": "জানিনা",
+                "bujhi": "বুঝি",
+                "bujhina": "বুঝিনা",
+                "khub": "খুব",
+                "onek": "অনেক",
+                "sundor": "সুন্দর",
+                "kotha": "কথা",
+                "keno": "কেন",
+                "hobe": "হবে",
+                "koro": "করো",
+                "korun": "করুন",
+                "habijabi": "হাবিজাবি"
+            }
+            
+            words = suggestion.split()
+            bangla_words = []
+            
+            for word in words:
+                bangla_words.append(bangla_map.get(word, word))
+            
+            return ' '.join(bangla_words)
         except Exception as e:
-            logger.error(f"Error adding mapping: {e}")
-            return False
+            logger.error(f"Error getting Bangla translation: {e}")
+            return suggestion

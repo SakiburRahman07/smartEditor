@@ -5,3 +5,4 @@ google-generativeai
 numpy
 python-multipart
 jinja2
+rapidfuzz==3.6.1

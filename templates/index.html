@@ -45,8 +45,12 @@
             display: flex;
             gap: 10px;
         }
-        input[type="text"] {
+        .input-wrapper {
             flex: 1;
+            position: relative;
+        }
+        input[type="text"] {
+            width: 100%;
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 5px;
@@ -64,12 +68,18 @@
             background-color: #1976d2;
         }
         .correction-preview {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            z-index: 10;
             font-size: 0.9em;
             color: #666;
             margin-top: 5px;
             min-height: 20px;
             padding: 5px;
             font-family: Arial, sans-serif;
+            background: white;
         }
         .cache-indicator {
             font-size: 0.8em;
@@ -95,22 +105,25 @@
             color: #666;
             margin-top: 5px;
         }
+        .suggestions-container {
+            margin-top: 8px;
+            padding: 8px;
+            background: #fff;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
         
         .suggestion {
             display: inline-block;
-            background: #f0f8ff;
+            background: #e3f2fd;
             padding: 4px 10px;
             border-radius: 3px;
             margin: 3px;
             cursor: pointer;
             font-family: Arial, sans-serif;
             line-height: 1.4;
-        }
-        
-        .suggestion small {
-            display: block;
-            font-size: 0.85em;
-            opacity: 0.8;
+            border: 1px solid #bbdefb;
+            color: #2196f3;
         }
         
         .suggestion:hover {
@@ -186,12 +199,62 @@
             }
         }
 
+        async function checkSpelling(text) {
+            if (!text || !/[a-zA-Z]/.test(text)) {
+                document.getElementById('correctionPreview').innerHTML = '';
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('text', text);
+                
+                const response = await fetch('/check-banglish', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.suggestions && data.suggestions.length > 0) {
+                    currentCorrection = data.suggestions[0];
+                    const suggestionsHtml = data.suggestions.map(suggestion => 
+                        `<span class="suggestion" onclick="useCorrection('${suggestion}')">
+                            ${suggestion}
+                        </span>`
+                    ).join(' ');
+                    
+                    document.getElementById('correctionPreview').innerHTML = 
+                        `<div class="suggestions-container">
+                            ${suggestionsHtml}
+                        </div>`;
+                } else {
+                    document.getElementById('correctionPreview').innerHTML = '';
+                    currentCorrection = null;
+                }
+            } catch (error) {
+                console.error('Error checking spelling:', error);
+                document.getElementById('correctionPreview').innerHTML = '';
+                currentCorrection = null;
+            }
+        }
+
+        function useCorrection(correction) {
+            document.getElementById('userInput').value = correction;
+            document.getElementById('correctionPreview').innerHTML = '';
+            currentCorrection = null;
+        }
+
+        // Add input event listener for real-time checking
+        document.getElementById('userInput').addEventListener('input', function(e) {
+            checkSpelling(e.target.value);
+        });
+
         async function sendMessage() {
             const userInput = document.getElementById('userInput');
             const message = userInput.value.trim();
             
             if (message) {
-                // Use correction if available
                 const finalMessage = currentCorrection || message;
                 addMessage(finalMessage, true);
                 userInput.value = '';
@@ -255,88 +318,6 @@
 
         // Load cached conversations when page loads
         loadCachedConversations();
-
-        function getBanglishEquivalent(text) {
-            // Common Bangla to Banglish mapping
-            const banglishMap = {
-                'আমি': 'ami',
-                'তুমি': 'tumi',
-                'আপনি': 'apni',
-                'কেমন': 'kemon',
-                'আছো': 'acho',
-                'আছেন': 'achen',
-                'ভালো': 'bhalo',
-                'কোথায়': 'kothay',
-                'কি': 'ki',
-                'করছো': 'korcho',
-                'করছেন': 'korchen',
-                'বলো': 'bolo',
-                'বলুন': 'bolun',
-                'ঢাকা': 'dhaka',
-                'বাংলাদেশ': 'bangladesh',
-                'বাংলা': 'bangla',
-                'ইংরেজি': 'english',
-                // Add more mappings as needed
-            };
-
-            return banglishMap[text] || text;
-        }
-
-        async function checkBanglish(text) {
-            if (!text) {
-                document.getElementById('correctionPreview').innerHTML = '';
-                return;
-            }
-            
-            // Only check if the text contains ASCII characters (likely Banglish)
-            if (!/[a-zA-Z]/.test(text)) {
-                document.getElementById('correctionPreview').innerHTML = '';
-                return;
-            }
-
-            try {
-                const formData = new FormData();
-                formData.append('text', text);
-                
-                const response = await fetch('/check-banglish', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (data.suggestions && data.suggestions.length > 0) {
-                    currentCorrection = data.suggestions[0];  // Store the first suggestion
-                    const suggestionsHtml = data.suggestions.map(suggestion => 
-                        `<span class="suggestion" onclick="useCorrection('${suggestion}')">
-                            ${suggestion} 
-                            <small style="color: #666">(${getBanglishEquivalent(suggestion)})</small>
-                        </span>`
-                    ).join(' ');
-                    
-                    document.getElementById('correctionPreview').innerHTML = 
-                        `Possible spelling: ${suggestionsHtml}`;
-                } else {
-                    document.getElementById('correctionPreview').innerHTML = '';
-                    currentCorrection = null;
-                }
-            } catch (error) {
-                console.error('Error checking Banglish:', error);
-                document.getElementById('correctionPreview').innerHTML = '';
-                currentCorrection = null;
-            }
-        }
-
-        function useCorrection(correction) {
-            document.getElementById('userInput').value = correction;
-            document.getElementById('correctionPreview').innerHTML = '';
-            currentCorrection = null;
-        }
-
-        // Add input event listener for real-time checking
-        document.getElementById('userInput').addEventListener('input', function(e) {
-            checkBanglish(e.target.value);
-        });
     </script>
 </body>
 </html> 
