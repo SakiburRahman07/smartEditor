@@ -68,6 +68,8 @@
             color: #666;
             margin-top: 5px;
             min-height: 20px;
+            padding: 5px;
+            font-family: Arial, sans-serif;
         }
         .cache-indicator {
             font-size: 0.8em;
@@ -93,6 +95,27 @@
             color: #666;
             margin-top: 5px;
         }
+        
+        .suggestion {
+            display: inline-block;
+            background: #f0f8ff;
+            padding: 4px 10px;
+            border-radius: 3px;
+            margin: 3px;
+            cursor: pointer;
+            font-family: Arial, sans-serif;
+            line-height: 1.4;
+        }
+        
+        .suggestion small {
+            display: block;
+            font-size: 0.85em;
+            opacity: 0.8;
+        }
+        
+        .suggestion:hover {
+            background: #bbdefb;
+        }
     </style>
 </head>
 <body>
@@ -105,7 +128,10 @@
         </div>
         <div class="chat-messages" id="chatMessages"></div>
         <div class="input-container">
-            <input type="text" id="userInput" placeholder="আপনার মেসেজ লিখুন..." autocomplete="off">
+            <div class="input-wrapper">
+                <input type="text" id="userInput" placeholder="আপনার মেসেজ লিখুন..." autocomplete="off">
+                <div id="correctionPreview" class="correction-preview"></div>
+            </div>
             <button onclick="sendMessage()">পাঠান</button>
         </div>
     </div>
@@ -113,6 +139,7 @@
     <script>
         let currentConversationId = null;
         let messageCache = new Map(); // Store message cache details
+        let currentCorrection = null;
 
         function addMessage(message, isUser, cacheDetails = null) {
             const chatMessages = document.getElementById('chatMessages');
@@ -164,12 +191,16 @@
             const message = userInput.value.trim();
             
             if (message) {
-                addMessage(message, true);
+                // Use correction if available
+                const finalMessage = currentCorrection || message;
+                addMessage(finalMessage, true);
                 userInput.value = '';
                 userInput.disabled = true;
+                document.getElementById('correctionPreview').innerHTML = '';
+                currentCorrection = null;
 
                 const formData = new FormData();
-                formData.append('message', message);
+                formData.append('message', finalMessage);
 
                 try {
                     const response = await fetch('/chat', {
@@ -178,18 +209,11 @@
                     });
                     const data = await response.json();
                     
-                    // Add bot response with cache details
                     addMessage(data.response, false, {
                         used_cache: data.used_cache,
                         cache_name: data.cache_name,
                         has_embedding: data.has_embedding
                     });
-                    
-                    // Store conversation ID and cache name
-                    if (data.cache_name) {
-                        currentConversationId = data.conversation_id;
-                        localStorage.setItem(`cache_${data.conversation_id}`, data.cache_name);
-                    }
                     
                 } catch (error) {
                     addMessage('দুঃখিত, একটি সমস্যা হয়েছে।', false);
@@ -231,6 +255,88 @@
 
         // Load cached conversations when page loads
         loadCachedConversations();
+
+        function getBanglishEquivalent(text) {
+            // Common Bangla to Banglish mapping
+            const banglishMap = {
+                'আমি': 'ami',
+                'তুমি': 'tumi',
+                'আপনি': 'apni',
+                'কেমন': 'kemon',
+                'আছো': 'acho',
+                'আছেন': 'achen',
+                'ভালো': 'bhalo',
+                'কোথায়': 'kothay',
+                'কি': 'ki',
+                'করছো': 'korcho',
+                'করছেন': 'korchen',
+                'বলো': 'bolo',
+                'বলুন': 'bolun',
+                'ঢাকা': 'dhaka',
+                'বাংলাদেশ': 'bangladesh',
+                'বাংলা': 'bangla',
+                'ইংরেজি': 'english',
+                // Add more mappings as needed
+            };
+
+            return banglishMap[text] || text;
+        }
+
+        async function checkBanglish(text) {
+            if (!text) {
+                document.getElementById('correctionPreview').innerHTML = '';
+                return;
+            }
+            
+            // Only check if the text contains ASCII characters (likely Banglish)
+            if (!/[a-zA-Z]/.test(text)) {
+                document.getElementById('correctionPreview').innerHTML = '';
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('text', text);
+                
+                const response = await fetch('/check-banglish', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.suggestions && data.suggestions.length > 0) {
+                    currentCorrection = data.suggestions[0];  // Store the first suggestion
+                    const suggestionsHtml = data.suggestions.map(suggestion => 
+                        `<span class="suggestion" onclick="useCorrection('${suggestion}')">
+                            ${suggestion} 
+                            <small style="color: #666">(${getBanglishEquivalent(suggestion)})</small>
+                        </span>`
+                    ).join(' ');
+                    
+                    document.getElementById('correctionPreview').innerHTML = 
+                        `Possible spelling: ${suggestionsHtml}`;
+                } else {
+                    document.getElementById('correctionPreview').innerHTML = '';
+                    currentCorrection = null;
+                }
+            } catch (error) {
+                console.error('Error checking Banglish:', error);
+                document.getElementById('correctionPreview').innerHTML = '';
+                currentCorrection = null;
+            }
+        }
+
+        function useCorrection(correction) {
+            document.getElementById('userInput').value = correction;
+            document.getElementById('correctionPreview').innerHTML = '';
+            currentCorrection = null;
+        }
+
+        // Add input event listener for real-time checking
+        document.getElementById('userInput').addEventListener('input', function(e) {
+            checkBanglish(e.target.value);
+        });
     </script>
 </body>
 </html> 

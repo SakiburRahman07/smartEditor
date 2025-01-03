@@ -319,3 +319,18 @@ async def get_all_conversations():
 async def conversation_history_page(request: Request):
     """Render conversation history page"""
     return templates.TemplateResponse("conversation_history.html", {"request": request})
+
+@app.post("/check-banglish")
+async def check_banglish(text: str = Form(...)):
+    """Check and suggest corrections for Banglish text"""
+    try:
+        suggestions = await chat_service.banglish_service.get_suggestions(text)
+        return {
+            "status": "success",
+            "suggestions": suggestions
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }

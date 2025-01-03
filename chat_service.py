@@ -4,6 +4,7 @@ import os
 import logging
 import uuid
 from embedding_service import EmbeddingService
+from banglish_service import BanglishService
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -38,6 +39,7 @@ class ChatService:
             logger.info("ChatService initialized successfully")
             
             self.embedding_service = EmbeddingService()
+            self.banglish_service = BanglishService()
             
         except Exception as e:
             logger.error(f"Error initializing ChatService: {e}")
@@ -45,6 +47,11 @@ class ChatService:
 
     async def get_response(self, message: str) -> dict:
         try:
+            # Check for Banglish and get correction suggestions
+            banglish_correction = None
+            if any(ord(c) < 128 for c in message):  # Check if contains ASCII (likely Banglish)
+                banglish_correction = await self.banglish_service.get_correction(message)
+            
             # Create embedding for the query
             query_embedding = await self.embedding_service.create_embedding(message)
             
@@ -97,7 +104,8 @@ class ChatService:
                 "conversation_id": conversation_id,
                 "cache_name": cache_name,
                 "has_embedding": conv_embedding is not None,
-                "used_cache": bool(similar_conversations)
+                "used_cache": bool(similar_conversations),
+                "banglish_correction": banglish_correction
             }
             
         except Exception as e:

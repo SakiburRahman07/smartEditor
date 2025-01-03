@@ -204,4 +204,4 @@ class EmbeddingService:
             logger.info(f"Cleaned up {len(expired_ids)} expired caches")
             
         except Exception as e:
-            logger.error(f"Error cleaning up caches: {e}") 
+            logger.error(f"Error cleaning up caches: {e}")
